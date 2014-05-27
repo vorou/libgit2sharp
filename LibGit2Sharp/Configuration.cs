@@ -43,6 +43,19 @@ namespace LibGit2Sharp
 
         private void Init()
         {
+            ReloadConfig();
+        }
+
+        /// <summary>
+        /// Update configuration values related to this repository
+        /// </summary>
+        public void ReloadConfig()
+        {
+            if (configHandle != null)
+            {
+                configHandle.Dispose();
+            }
+
             configHandle = Proxy.git_config_new();
 
             if (repository != null)
