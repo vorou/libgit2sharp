@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections;
+﻿using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -88,8 +87,7 @@ namespace LibGit2Sharp
         {
             get
             {
-                return string.Format(CultureInfo.InvariantCulture,
-                    "Count = {0}", this.Count());
+                return string.Format(CultureInfo.InvariantCulture, "Count = {0}", this.Count());
             }
         }
     }

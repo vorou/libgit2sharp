@@ -9,7 +9,7 @@ namespace LibGit2Sharp.Tests
         [Fact]
         public void StagingHonorsTheAttributesFiles()
         {
-            string path = CloneStandardTestRepo();
+            string path = SandboxStandardTestRepo();
             using (var repo = new Repository(path))
             {
                 CreateAttributesFile(repo);
@@ -30,7 +30,7 @@ namespace LibGit2Sharp.Tests
 
             Touch(repo.Info.WorkingDirectory, filename, sb.ToString());
 
-            repo.Index.Stage(filename);
+            repo.Stage(filename);
 
             IndexEntry entry = repo.Index[filename];
             Assert.NotNull(entry);

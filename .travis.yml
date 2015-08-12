@@ -10,21 +10,21 @@ os:
 before_install:
  - date -u
  - uname -a
+ - export PATH=/opt/mono/bin:$PATH
  - env | sort
 
 # Make sure CMake and Mono are installed
-install:
- - if [ "${TRAVIS_OS_NAME}" = "linux" ]; then ./CI/travis.linux.install.deps.sh; fi
- - if [ "${TRAVIS_OS_NAME}" = "osx" ]; then ./CI/travis.osx.install.deps.sh; fi
+install: ./CI/travis.${TRAVIS_OS_NAME}.install.deps.sh
 
 # Build libgit2, LibGit2Sharp and run the tests
 script:
- - ./build.libgit2sharp.sh
+ - ./build.libgit2sharp.sh 'LEAKS_IDENTIFYING'
 
 # Only watch the development branch
 branches:
  only:
    - vNext
+   - master
 
 # Notify of build changes
 notifications:

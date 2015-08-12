@@ -56,9 +56,10 @@
         InvalidSpecification = -12,
 
         /// <summary>
-        /// A conflicting change has been detected.
+        /// A conflicting change has been detected in the index
+        /// or working directory.
         /// </summary>
-        MergeConflict = -13,
+        Conflict = -13,
 
         /// <summary>
         /// A file operation failed because the file was locked.
@@ -69,6 +70,41 @@
         /// Reference value does not match expected.
         /// </summary>
         Modified = -15,
+
+        /// <summary>
+        /// Authentication error.
+        /// </summary>
+        Auth = -16,
+
+        /// <summary>
+        /// Server certificate is invalid.
+        /// </summary>
+        Certificate = -17,
+
+        /// <summary>
+        /// Patch/merge has already been applied.
+        /// </summary>
+        Applied = -18,
+
+        /// <summary>
+        /// The requested peel operation is not possible.
+        /// </summary>
+        Peel = -19,
+
+        /// <summary>
+        /// Unexpected EOF.
+        /// </summary>
+        EndOfFile = -20,
+
+        /// <summary>
+        /// Invalid operation or input.
+        /// </summary>
+        Invalid = -21,
+
+        /// <summary>
+        /// Uncommitted changes in index prevented operation.
+        /// </summary>
+        Uncommitted = -22,
 
         /// <summary>
         /// Skip and passthrough the given ODB backend.

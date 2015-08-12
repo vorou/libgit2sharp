@@ -7,8 +7,111 @@
  - Issue tracker: <https://github.com/libgit2/libgit2sharp/issues>
  - @libgit2sharp: <http://twitter.com/libgit2sharp>
  - CI servers:
-  - CodeBetter TeamCity: <http://teamcity.codebetter.com/project.html?projectId=LibGit2Sharp&guest=1>
-  - Travis: <https://travis-ci.org/libgit2/libgit2sharp>
+  - Windows (x86/amd64): <https://ci.appveyor.com/project/libgit2/libgit2sharp>
+  - Linux/Mac OS X: <https://travis-ci.org/libgit2/libgit2sharp>
+
+## v0.21.1 - ([diff](https://github.com/libgit2/libgit2sharp/compare/v0.21...v0.21.1))
+
+### Changes
+
+- Fix Fetch() related tests to cope with recent GitHub policy change regarding include-tag handling (#995, #1001)
+
+## v0.21 - ([diff](https://github.com/libgit2/libgit2sharp/compare/v0.20.2...v0.21))
+
+### Additions
+
+ - Introduce repo.Index.Add() and repo.Index.Remove() (#907)
+ - Introduce repo.Describe() (#848)
+ - Teach Repository.Clone to accept a specific branch to checkout (#650, #882)
+ - Expose IndexEntry.AssumeUnchanged (#928, #929)
+ - Introduce GlobalSettings.Version.InformationalVersion (#921)
+
+### Changes
+
+ - Deprecate Branch.Checkout() (#937)
+ - Deprecate GlobalSettings.Version.MajorMinorPatch (#921)
+ - Change Blob.Size output to a long (#892)
+ - Update libgit2 binaries to libgit2/libgit2@e0902fb
+
+### Fixes
+
+ - Fix Network.Fetch() tags retrieval (#927)
+ - Fix repo.Stage("*") behavior (#907)
+ - Plug some memory leaks (#883, #910)
+ - Protect Repository.Clone() from null parameters (#891)
+
+## v0.20.2 - ([diff](https://github.com/libgit2/libgit2sharp/compare/v0.20.1...v0.20.2))
+
+### Fixes
+
+ - Update libgit2 to prevent issues around symbolic links to ".git" folders in trees on Mac
+
+## v0.20.1 - ([diff](https://github.com/libgit2/libgit2sharp/compare/v0.20...v0.20.1))
+
+### Fixes
+
+ - Update libgit2 to prevent issues around ".git" folders in trees on Windows and Mac
+
+## v0.20 - ([diff](https://github.com/libgit2/libgit2sharp/compare/v0.19...v0.20))
+
+### Additions
+
+ - Teach RemoteUpdater to update the remote url (#803)
+ - Introduce ObjectDatabase.CreateTree(Index) and Index.Reset(Tree) (#788, #799)
+ - Add process wide logging feature (#832)
+ - Add process wide SmartSubtransport registration/unregistration (#528)
+ - Expose Index.Clear() (#814)
+
+### Changes
+
+ - Require Mono 3.6+ on non Windows platform (#800)
+ - Require NuGet 2.7+ to install the package (#836)
+ - Throw MergeFetchHeadNotFoundException when Pull cannot find ref to merge (#841)
+ - Drop Remote.IsSupportedUrl() (#857)
+ - Deprecate repo.Version in favor of GlobalSettings.Version (#726, #820)
+ - Remove optional parameters from IRepository (#779, #815)
+ - Move higher level Index operations to IRepository (#822, #851)
+ - Deprecate repo.Refs.Move() in favor of repo.Refs.Rename() (#752, #819)
+ - Update libgit2 binaries to libgit2/libgit2@3f8d005
+
+### Fixes
+
+ - Fix compareOptions handling in Diff.Compare<T> (#827, #828)
+ - Honor MSBuild Publish mechanism (#597, #821)
+ - Make Configuration.BuildSignature() throw a more descriptive message (#831, #858)
+ - Prevent Branch.Remote property from throwing when the remote is unresolvable (#823)
+ - Teach Revert() to clean up repository state when there is nothing to revert (#816)
+
+## v0.19 - ([diff](https://github.com/libgit2/libgit2sharp/compare/v0.18.1...v0.19))
+
+### Additions
+
+ - Introduce repo.Network.Remotes.Rename() (#730, #741)
+ - Introduce repo.ObjectDatabase.ShortenObjectId() (#677)
+ - Introduce Remote.IsSupportedUrl() (#754)
+ - Introduce repo.CherryPick() (#755, #756)
+ - Expose advanced conflict data (REUC, renames) (#748)
+
+### Changes
+
+ - Make Patch expose a richer PatchEntryChanges type (#686, #702)
+ - Make network operations accept Credentials through a callback (#759, #761, #767)
+ - Make repo.Index.Stage() respect ignored files by default (#777)
+ - Make OdbBackend IDisposable (#713)
+ - Update libgit2 binaries to libgit2/libgit2@d28b2b7
+
+### Fixes
+
+ - Don't require specific rights to the parent hierarchy of a repository (#795)
+ - Prevent Clone() from choking on empty packets (#794)
+ - Ensure Tags can be created in detached Head state (#791)
+ - Properly determine object size when calculating its CRC (#783)
+ - Prevent blind fast forwards merges when there are checkout conflicts (#781)
+ - Make repo.Reset() and repo.Index.Unstage() cope with renamed entries (#777)
+ - Do not throw when parsing annotated tags without a Signature (#775, #776)
+ - Remove conflicts upon repo.Index.Remove() call (#768)
+ - Honor the merge.ff configuration entry (#709)
+ - Make Clone() properly throws when passed an invalid url (#701)
 
 ## v0.18.1 - ([diff](https://github.com/libgit2/libgit2sharp/compare/v0.18.0...v0.18.1))
 

@@ -16,7 +16,7 @@ namespace LibGit2Sharp.Tests
         {
             string relativeFilepath = "test.txt";
             Touch(repo.Info.WorkingDirectory, relativeFilepath, content);
-            repo.Index.Stage(relativeFilepath);
+            repo.Stage(relativeFilepath);
 
             var ie = repo.Index[relativeFilepath];
             Assert.NotNull(ie);
@@ -28,7 +28,7 @@ namespace LibGit2Sharp.Tests
             relativeFilepath = "big.txt";
             var zeros = new string('0', 32*1024 + 3);
             Touch(repo.Info.WorkingDirectory, relativeFilepath, zeros);
-            repo.Index.Stage(relativeFilepath);
+            repo.Stage(relativeFilepath);
 
             ie = repo.Index[relativeFilepath];
             Assert.NotNull(ie);
@@ -183,12 +183,12 @@ namespace LibGit2Sharp.Tests
             /*
              * $ echo "aabqhq" | git hash-object -t blob --stdin
              * dea509d0b3cb8ee0650f6ca210bc83f4678851ba
-             * 
+             *
              * $ echo "aaazvc" | git hash-object -t blob --stdin
              * dea509d097ce692e167dfc6a48a7a280cc5e877e
              */
 
-            string path = CloneBareTestRepo();
+            string path = SandboxBareTestRepo();
             using (var repo = new Repository(path))
             {
                 repo.ObjectDatabase.AddBackend(new MockOdbBackend(), 5);
@@ -386,7 +386,7 @@ namespace LibGit2Sharp.Tests
 
             public override int ExistsPrefix(string shortSha, out ObjectId found)
             {
-                found = null; 
+                found = null;
                 int numFound = 0;
 
                 foreach (ObjectId id in m_objectIdToContent.Keys)

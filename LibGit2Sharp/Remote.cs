@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Diagnostics;
 using System.Globalization;
+using System.Linq;
 using LibGit2Sharp.Core;
 using LibGit2Sharp.Core.Handles;
 
@@ -12,14 +12,15 @@ namespace LibGit2Sharp
     /// A remote repository whose branches are tracked.
     /// </summary>
     [DebuggerDisplay("{DebuggerDisplay,nq}")]
-    public class Remote : IEquatable<Remote>
+    public class Remote : IEquatable<Remote>, IBelongToARepository
     {
         private static readonly LambdaEqualityHelper<Remote> equalityHelper =
-            new LambdaEqualityHelper<Remote>(x => x.Name, x => x.Url);
+            new LambdaEqualityHelper<Remote>(x => x.Name, x => x.Url, x => x.PushUrl);
 
         internal readonly Repository repository;
 
         private readonly RefSpecCollection refSpecs;
+        private string pushUrl;
 
         /// <summary>
         /// Needed for mocking purposes.
@@ -32,6 +33,7 @@ namespace LibGit2Sharp
             this.repository = repository;
             Name = Proxy.git_remote_name(handle);
             Url = Proxy.git_remote_url(handle);
+            PushUrl = Proxy.git_remote_pushurl(handle);
             TagFetchMode = Proxy.git_remote_autotag(handle);
             refSpecs = new RefSpecCollection(handle);
         }
@@ -52,6 +54,16 @@ namespace LibGit2Sharp
         /// Gets the url to use to communicate with this remote repository.
         /// </summary>
         public virtual string Url { get; private set; }
+
+        /// <summary>
+        /// Gets the distinct push url for this remote repository, if set.
+        /// Defaults to the fetch url (<see cref="Url"/>) if not set.
+        /// </summary>
+        public virtual string PushUrl
+        {
+            get { return pushUrl ?? Url; }
+            private set { pushUrl = value; }
+        }
 
         /// <summary>
         /// Gets the Tag Fetch Mode of the remote - indicating how tags are fetched.
@@ -88,7 +100,7 @@ namespace LibGit2Sharp
         /// <returns>The transformed reference.</returns>
         internal string FetchSpecTransformToSource(string reference)
         {
-            using (RemoteSafeHandle remoteHandle = Proxy.git_remote_load(repository.Handle, Name, true))
+            using (RemoteSafeHandle remoteHandle = Proxy.git_remote_lookup(repository.Handle, Name, true))
             {
                 GitRefSpecHandle fetchSpecPtr = Proxy.git_remote_get_refspec(remoteHandle, 0);
                 return Proxy.git_refspec_rtransform(fetchSpecPtr, reference);
@@ -106,13 +118,28 @@ namespace LibGit2Sharp
         }
 
         /// <summary>
-        /// Determines if the proposed remote URL is supported by the library.
+        /// Gets the configured behavior regarding the deletion
+        /// of stale remote tracking branches.
+        /// <para>
+        ///   If defined, will return the value of the <code>remote.&lt;name&gt;.prune</code> entry.
+        ///   Otherwise return the value of <code>fetch.prune</code>.
+        /// </para>
         /// </summary>
-        /// <param name="url">The URL to be checked.</param>
-        /// <returns>true if the url is supported; false otherwise.</returns>
-        public static bool IsSupportedUrl(string url)
+        public virtual bool AutomaticallyPruneOnFetch
         {
-            return Proxy.git_remote_supported_url(url);
+            get
+            {
+                var remotePrune = repository.Config.Get<bool>("remote", Name, "prune");
+
+                if (remotePrune != null)
+                {
+                    return remotePrune.Value;
+                }
+
+                var fetchPrune = repository.Config.Get<bool>("fetch.prune");
+
+                return fetchPrune != null && fetchPrune.Value;
+            }
         }
 
         /// <summary>
@@ -170,9 +197,10 @@ namespace LibGit2Sharp
         {
             get
             {
-                return string.Format(CultureInfo.InvariantCulture,
-                    "{0} => {1}", Name, Url);
+                return string.Format(CultureInfo.InvariantCulture, "{0} => {1}", Name, Url);
             }
         }
+
+        IRepository IBelongToARepository.Repository { get { return repository; } }
     }
 }

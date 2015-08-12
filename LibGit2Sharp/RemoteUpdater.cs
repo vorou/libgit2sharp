@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using LibGit2Sharp.Core;
 using LibGit2Sharp.Core.Handles;
@@ -10,10 +11,10 @@ namespace LibGit2Sharp
     /// </summary>
     public class RemoteUpdater
     {
-        private readonly Repository repo;
-        private readonly Remote remote;
         private readonly UpdatingCollection<string> fetchRefSpecs;
         private readonly UpdatingCollection<string> pushRefSpecs;
+        private readonly Repository repo;
+        private readonly Remote remote;
 
         /// <summary>
         /// Needed for mocking purposes.
@@ -35,7 +36,7 @@ namespace LibGit2Sharp
 
         private IEnumerable<string> GetFetchRefSpecs()
         {
-            using (RemoteSafeHandle remoteHandle = Proxy.git_remote_load(repo.Handle, remote.Name, true))
+            using (RemoteSafeHandle remoteHandle = Proxy.git_remote_lookup(repo.Handle, remote.Name, true))
             {
                 return Proxy.git_remote_get_fetch_refspecs(remoteHandle);
             }
@@ -43,16 +44,17 @@ namespace LibGit2Sharp
 
         private void SetFetchRefSpecs(IEnumerable<string> value)
         {
-            using (RemoteSafeHandle remoteHandle = Proxy.git_remote_load(repo.Handle, remote.Name, true))
+            repo.Config.UnsetMultivar(string.Format("remote.{0}.fetch", remote.Name), ConfigurationLevel.Local);
+
+            foreach (var url in value)
             {
-                Proxy.git_remote_set_fetch_refspecs(remoteHandle, value);
-                Proxy.git_remote_save(remoteHandle);
+                Proxy.git_remote_add_fetch(repo.Handle, remote.Name, url);
             }
         }
 
         private IEnumerable<string> GetPushRefSpecs()
         {
-            using (RemoteSafeHandle remoteHandle = Proxy.git_remote_load(repo.Handle, remote.Name, true))
+            using (RemoteSafeHandle remoteHandle = Proxy.git_remote_lookup(repo.Handle, remote.Name, true))
             {
                 return Proxy.git_remote_get_push_refspecs(remoteHandle);
             }
@@ -60,10 +62,11 @@ namespace LibGit2Sharp
 
         private void SetPushRefSpecs(IEnumerable<string> value)
         {
-            using (RemoteSafeHandle remoteHandle = Proxy.git_remote_load(repo.Handle, remote.Name, true))
+            repo.Config.UnsetMultivar(string.Format("remote.{0}.push", remote.Name), ConfigurationLevel.Local);
+
+            foreach (var url in value)
             {
-                Proxy.git_remote_set_push_refspecs(remoteHandle, value);
-                Proxy.git_remote_save(remoteHandle);
+                Proxy.git_remote_add_push(repo.Handle, remote.Name, url);
             }
         }
 
@@ -72,21 +75,29 @@ namespace LibGit2Sharp
         /// </summary>
         public virtual TagFetchMode TagFetchMode
         {
-            set
-            {
-                using (RemoteSafeHandle remoteHandle = Proxy.git_remote_load(repo.Handle, remote.Name, true))
-                {
-                    Proxy.git_remote_set_autotag(remoteHandle, value);
-                    Proxy.git_remote_save(remoteHandle);
-                }
-            }
+            set { Proxy.git_remote_set_autotag(repo.Handle, remote.Name, value); }
+        }
+
+        /// <summary>
+        /// Sets the url defined for this <see cref="Remote"/>
+        /// </summary>
+        public virtual string Url
+        {
+            set { Proxy.git_remote_set_url(repo.Handle, remote.Name, value); }
+        }
+
+        /// <summary>
+        /// Sets the push url defined for this <see cref="Remote"/>
+        /// </summary>
+        public virtual string PushUrl
+        {
+            set { Proxy.git_remote_set_pushurl(repo.Handle, remote.Name, value); }
         }
 
         /// <summary>
         /// Sets the list of <see cref="RefSpec"/>s defined for this <see cref="Remote"/> that are intended to
         /// be used during a Fetch operation
         /// </summary>
-        /// <remarks>Changing the list updates the <see cref="Remote" />.</remarks>
         public virtual ICollection<string> FetchRefSpecs
         {
             get { return fetchRefSpecs; }
@@ -97,7 +108,6 @@ namespace LibGit2Sharp
         /// Sets or gets the list of <see cref="RefSpec"/>s defined for this <see cref="Remote"/> that are intended to
         /// be used during a Push operation
         /// </summary>
-        /// <remarks>Changing the list updates the <see cref="Remote" />.</remarks>
         public virtual ICollection<string> PushRefSpecs
         {
             get { return pushRefSpecs; }
@@ -164,7 +174,7 @@ namespace LibGit2Sharp
                 return list.Value.GetEnumerator();
             }
 
-            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
+            IEnumerator IEnumerable.GetEnumerator()
             {
                 return list.Value.GetEnumerator();
             }

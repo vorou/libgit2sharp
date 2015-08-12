@@ -3,8 +3,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
-using System.IO;
-using System.Linq;
 using LibGit2Sharp.Core;
 using LibGit2Sharp.Core.Handles;
 
@@ -32,7 +30,7 @@ namespace LibGit2Sharp
             this.repo = repo;
 
             handle = Proxy.git_repository_index(repo.Handle);
-            conflicts = new ConflictCollection(repo);
+            conflicts = new ConflictCollection(this);
 
             repo.RegisterForCleanup(handle);
         }
@@ -43,7 +41,7 @@ namespace LibGit2Sharp
 
             handle = Proxy.git_index_open(indexPath);
             Proxy.git_repository_set_index(repo.Handle, handle);
-            conflicts = new ConflictCollection(repo);
+            conflicts = new ConflictCollection(this);
 
             repo.RegisterForCleanup(handle);
         }
@@ -54,7 +52,7 @@ namespace LibGit2Sharp
         }
 
         /// <summary>
-        /// Gets the number of <see cref="IndexEntry"/> in the index.
+        /// Gets the number of <see cref="IndexEntry"/> in the <see cref="Index"/>.
         /// </summary>
         public virtual int Count
         {
@@ -62,7 +60,7 @@ namespace LibGit2Sharp
         }
 
         /// <summary>
-        /// Determines if the index is free from conflicts.
+        /// Determines if the <see cref="Index"/> is free from conflicts.
         /// </summary>
         public virtual bool IsFullyMerged
         {
@@ -128,379 +126,104 @@ namespace LibGit2Sharp
         #endregion
 
         /// <summary>
-        /// Promotes to the staging area the latest modifications of a file in the working directory (addition, updation or removal).
+        /// Replaces entries in the <see cref="Index"/> with entries from the specified <see cref="Tree"/>.
+        /// <para>
+        ///   This overwrites all existing state in the <see cref="Index"/>.
+        /// </para>
         /// </summary>
-        /// <param name="path">The path of the file within the working directory.</param>
-        /// <param name="explicitPathsOptions">
-        /// If set, the passed <paramref name="path"/> will be treated as explicit paths.
-        /// Use these options to determine how unmatched explicit paths should be handled.
-        /// </param>
-        public virtual void Stage(string path, ExplicitPathsOptions explicitPathsOptions = null)
+        /// <param name="source">The <see cref="Tree"/> to read the entries from.</param>
+        public virtual void Replace(Tree source)
         {
-            Ensure.ArgumentNotNull(path, "path");
-
-            Stage(new[] { path }, explicitPathsOptions);
-        }
-
-        /// <summary>
-        /// Promotes to the staging area the latest modifications of a collection of files in the working directory (addition, updation or removal).
-        /// </summary>
-        /// <param name="paths">The collection of paths of the files within the working directory.</param>
-        /// <param name="explicitPathsOptions">
-        /// If set, the passed <paramref name="paths"/> will be treated as explicit paths.
-        /// Use these options to determine how unmatched explicit paths should be handled.
-        /// </param>
-        public virtual void Stage(IEnumerable<string> paths, ExplicitPathsOptions explicitPathsOptions = null)
-        {
-            Ensure.ArgumentNotNull(paths, "paths");
-
-            var changes = repo.Diff.Compare<TreeChanges>(DiffModifiers.IncludeUntracked | DiffModifiers.IncludeIgnored, paths, explicitPathsOptions);
-
-            foreach (var treeEntryChanges in changes)
+            using (var obj = new ObjectSafeWrapper(source.Id, repo.Handle))
             {
-                switch (treeEntryChanges.Status)
-                {
-                    case ChangeKind.Unmodified:
-                        continue;
-
-                    case ChangeKind.Deleted:
-                        RemoveFromIndex(treeEntryChanges.Path);
-                        continue;
-
-                    case ChangeKind.Added:
-                        /* Fall through */
-                    case ChangeKind.Modified:
-                        AddToIndex(treeEntryChanges.Path);
-                        continue;
-
-                    default:
-                        throw new InvalidOperationException(
-                            string.Format(CultureInfo.InvariantCulture, "Entry '{0}' bears an unexpected ChangeKind '{1}'", treeEntryChanges.Path, treeEntryChanges.Status));
-                }
+                Proxy.git_index_read_fromtree(this, obj.ObjectPtr);
             }
 
             UpdatePhysicalIndex();
         }
 
         /// <summary>
-        /// Removes from the staging area all the modifications of a file since the latest commit (addition, updation or removal).
+        /// Clears all entries the <see cref="Index"/>. This is semantically equivalent to
+        /// creating an empty <see cref="Tree"/> object and resetting the <see cref="Index"/> to that <see cref="Tree"/>.
+        /// <para>
+        ///   This overwrites all existing state in the <see cref="Index"/>.
+        /// </para>
         /// </summary>
-        /// <param name="path">The path of the file within the working directory.</param>
-        /// <param name="explicitPathsOptions">
-        /// If set, the passed <paramref name="path"/> will be treated as explicit paths.
-        /// Use these options to determine how unmatched explicit paths should be handled.
-        /// </param>
-        public virtual void Unstage(string path, ExplicitPathsOptions explicitPathsOptions = null)
+        public virtual void Clear()
         {
-            Ensure.ArgumentNotNull(path, "path");
-
-            Unstage(new[] { path }, explicitPathsOptions);
-        }
-
-        /// <summary>
-        /// Removes from the staging area all the modifications of a collection of file since the latest commit (addition, updation or removal).
-        /// </summary>
-        /// <param name="paths">The collection of paths of the files within the working directory.</param>
-        /// <param name="explicitPathsOptions">
-        /// If set, the passed <paramref name="paths"/> will be treated as explicit paths.
-        /// Use these options to determine how unmatched explicit paths should be handled.
-        /// </param>
-        public virtual void Unstage(IEnumerable<string> paths, ExplicitPathsOptions explicitPathsOptions = null)
-        {
-            Ensure.ArgumentNotNull(paths, "paths");
-
-            if (repo.Info.IsHeadUnborn)
-            {
-                var changes = repo.Diff.Compare<TreeChanges>(null, DiffTargets.Index, paths, explicitPathsOptions, new CompareOptions { Similarity = SimilarityOptions.None });
-
-                Reset(changes);
-            }
-            else
-            {
-                repo.Reset("HEAD", paths, explicitPathsOptions);
-            }
-        }
-
-        /// <summary>
-        /// Moves and/or renames a file in the working directory and promotes the change to the staging area.
-        /// </summary>
-        /// <param name="sourcePath">The path of the file within the working directory which has to be moved/renamed.</param>
-        /// <param name="destinationPath">The target path of the file within the working directory.</param>
-        public virtual void Move(string sourcePath, string destinationPath)
-        {
-            Move(new[] { sourcePath }, new[] { destinationPath });
-        }
-
-        /// <summary>
-        /// Moves and/or renames a collection of files in the working directory and promotes the changes to the staging area.
-        /// </summary>
-        /// <param name="sourcePaths">The paths of the files within the working directory which have to be moved/renamed.</param>
-        /// <param name="destinationPaths">The target paths of the files within the working directory.</param>
-        public virtual void Move(IEnumerable<string> sourcePaths, IEnumerable<string> destinationPaths)
-        {
-            Ensure.ArgumentNotNull(sourcePaths, "sourcePaths");
-            Ensure.ArgumentNotNull(destinationPaths, "destinationPaths");
-
-            //TODO: Move() should support following use cases:
-            // - Moving a file under a directory ('file' and 'dir' -> 'dir/file')
-            // - Moving a directory (and its content) under another directory ('dir1' and 'dir2' -> 'dir2/dir1/*')
-
-            //TODO: Move() should throw when:
-            // - Moving a directory under a file
-
-            IDictionary<Tuple<string, FileStatus>, Tuple<string, FileStatus>> batch = PrepareBatch(sourcePaths, destinationPaths);
-
-            if (batch.Count == 0)
-            {
-                throw new ArgumentNullException("sourcePaths");
-            }
-
-            foreach (KeyValuePair<Tuple<string, FileStatus>, Tuple<string, FileStatus>> keyValuePair in batch)
-            {
-                string sourcePath = keyValuePair.Key.Item1;
-                string destPath = keyValuePair.Value.Item1;
-
-                if (Directory.Exists(sourcePath) || Directory.Exists(destPath))
-                {
-                    throw new NotImplementedException();
-                }
-
-                FileStatus sourceStatus = keyValuePair.Key.Item2;
-                if (sourceStatus.HasAny(new Enum[] { FileStatus.Nonexistent, FileStatus.Removed, FileStatus.Untracked, FileStatus.Missing }))
-                {
-                    throw new LibGit2SharpException(string.Format(CultureInfo.InvariantCulture, "Unable to move file '{0}'. Its current status is '{1}'.", sourcePath, sourceStatus));
-                }
-
-                FileStatus desStatus = keyValuePair.Value.Item2;
-                if (desStatus.HasAny(new Enum[] { FileStatus.Nonexistent, FileStatus.Missing }))
-                {
-                    continue;
-                }
-
-                throw new LibGit2SharpException(string.Format(CultureInfo.InvariantCulture, "Unable to overwrite file '{0}'. Its current status is '{1}'.", destPath, desStatus));
-            }
-
-            string wd = repo.Info.WorkingDirectory;
-            foreach (KeyValuePair<Tuple<string, FileStatus>, Tuple<string, FileStatus>> keyValuePair in batch)
-            {
-                string from = keyValuePair.Key.Item1;
-                string to = keyValuePair.Value.Item1;
-
-                RemoveFromIndex(from);
-                File.Move(Path.Combine(wd, from), Path.Combine(wd, to));
-                AddToIndex(to);
-            }
-
+            Proxy.git_index_clear(this);
             UpdatePhysicalIndex();
         }
 
-        /// <summary>
-        /// Removes a file from the staging area, and optionally removes it from the working directory as well.
-        /// <para>
-        ///   If the file has already been deleted from the working directory, this method will only deal
-        ///   with promoting the removal to the staging area.
-        /// </para>
-        /// <para>
-        ///   The default behavior is to remove the file from the working directory as well.
-        /// </para>
-        /// <para>
-        ///   When not passing a <paramref name="explicitPathsOptions"/>, the passed path will be treated as
-        ///   a pathspec. You can for example use it to pass the relative path to a folder inside the working directory,
-        ///   so that all files beneath this folders, and the folder itself, will be removed.
-        /// </para>
-        /// </summary>
-        /// <param name="path">The path of the file within the working directory.</param>
-        /// <param name="removeFromWorkingDirectory">True to remove the file from the working directory, False otherwise.</param>
-        /// <param name="explicitPathsOptions">
-        /// If set, the passed <paramref name="path"/> will be treated as an explicit path.
-        /// Use these options to determine how unmatched explicit paths should be handled.
-        /// </param>
-        public virtual void Remove(string path, bool removeFromWorkingDirectory = true, ExplicitPathsOptions explicitPathsOptions = null)
-        {
-            Ensure.ArgumentNotNull(path, "path");
-
-            Remove(new[] { path }, removeFromWorkingDirectory, explicitPathsOptions);
-        }
-
-        /// <summary>
-        /// Removes a collection of fileS from the staging, and optionally removes them from the working directory as well.
-        /// <para>
-        ///   If a file has already been deleted from the working directory, this method will only deal
-        ///   with promoting the removal to the staging area.
-        /// </para>
-        /// <para>
-        ///   The default behavior is to remove the files from the working directory as well.
-        /// </para>
-        /// <para>
-        ///   When not passing a <paramref name="explicitPathsOptions"/>, the passed paths will be treated as
-        ///   a pathspec. You can for example use it to pass the relative paths to folders inside the working directory,
-        ///   so that all files beneath these folders, and the folders themselves, will be removed.
-        /// </para>
-        /// </summary>
-        /// <param name="paths">The collection of paths of the files within the working directory.</param>
-        /// <param name="removeFromWorkingDirectory">True to remove the files from the working directory, False otherwise.</param>
-        /// <param name="explicitPathsOptions">
-        /// If set, the passed <paramref name="paths"/> will be treated as explicit paths.
-        /// Use these options to determine how unmatched explicit paths should be handled.
-        /// </param>
-        public virtual void Remove(IEnumerable<string> paths, bool removeFromWorkingDirectory = true, ExplicitPathsOptions explicitPathsOptions = null)
-        {
-            Ensure.ArgumentNotNullOrEmptyEnumerable<string>(paths, "paths");
-
-            var pathsToDelete = paths.Where(p => Directory.Exists(Path.Combine(repo.Info.WorkingDirectory, p))).ToList();
-            var notConflictedPaths = new List<string>();
-
-            foreach (var path in paths)
-            {
-                Ensure.ArgumentNotNullOrEmptyString(path, "path");
-
-                var conflict = repo.Index.Conflicts[path];
-
-                if (conflict != null)
-                {
-                    pathsToDelete.Add(RemoveFromIndex(path));
-                }
-                else
-                {
-                    notConflictedPaths.Add(path);
-                }
-            }
-
-            if (notConflictedPaths.Count > 0)
-            {
-                pathsToDelete.AddRange(RemoveStagedItems(notConflictedPaths, removeFromWorkingDirectory, explicitPathsOptions));
-            }
-
-            if (removeFromWorkingDirectory)
-            {
-                RemoveFilesAndFolders(pathsToDelete);
-            }
-
-            UpdatePhysicalIndex();
-        }
-
-        private IEnumerable<string> RemoveStagedItems(IEnumerable<string> paths, bool removeFromWorkingDirectory = true, ExplicitPathsOptions explicitPathsOptions = null)
-        {
-            var removed = new List<string>();
-            var changes = repo.Diff.Compare<TreeChanges>(DiffModifiers.IncludeUnmodified | DiffModifiers.IncludeUntracked, paths, explicitPathsOptions);
-
-            foreach (var treeEntryChanges in changes)
-            {
-                var status = repo.Index.RetrieveStatus(treeEntryChanges.Path);
-
-                switch (treeEntryChanges.Status)
-                {
-                    case ChangeKind.Added:
-                    case ChangeKind.Deleted:
-                        removed.Add(RemoveFromIndex(treeEntryChanges.Path));
-                        break;
-
-                    case ChangeKind.Unmodified:
-                        if (removeFromWorkingDirectory && (
-                            status.HasFlag(FileStatus.Staged) ||
-                            status.HasFlag(FileStatus.Added)))
-                        {
-                            throw new RemoveFromIndexException(string.Format(CultureInfo.InvariantCulture, "Unable to remove file '{0}', as it has changes staged in the index. You can call the Remove() method with removeFromWorkingDirectory=false if you want to remove it from the index only.",
-                                treeEntryChanges.Path));
-                        }
-                        removed.Add(RemoveFromIndex(treeEntryChanges.Path));
-                        continue;
-
-                    case ChangeKind.Modified:
-                        if (status.HasFlag(FileStatus.Modified) && status.HasFlag(FileStatus.Staged))
-                        {
-                            throw new RemoveFromIndexException(string.Format(CultureInfo.InvariantCulture, "Unable to remove file '{0}', as it has staged content different from both the working directory and the HEAD.",
-                                treeEntryChanges.Path));
-                        }
-                        if (removeFromWorkingDirectory)
-                        {
-                            throw new RemoveFromIndexException(string.Format(CultureInfo.InvariantCulture, "Unable to remove file '{0}', as it has local modifications. You can call the Remove() method with removeFromWorkingDirectory=false if you want to remove it from the index only.",
-                                treeEntryChanges.Path));
-                        }
-                        removed.Add(RemoveFromIndex(treeEntryChanges.Path));
-                        continue;
-
-                    default:
-                        throw new RemoveFromIndexException(string.Format(CultureInfo.InvariantCulture, "Unable to remove file '{0}'. Its current status is '{1}'.",
-                            treeEntryChanges.Path, treeEntryChanges.Status));
-                }
-            }
-
-            return removed;
-        }
-
-        private void RemoveFilesAndFolders(IEnumerable<string> pathsList)
-        {
-            string wd = repo.Info.WorkingDirectory;
-
-            foreach (string path in pathsList)
-            {
-                string fileName = Path.Combine(wd, path);
-
-                if (Directory.Exists(fileName))
-                {
-                    Directory.Delete(fileName, true);
-                    continue;
-                }
-
-                if (!File.Exists(fileName))
-                {
-                    continue;
-                }
-
-                File.Delete(fileName);
-            }
-        }
-
-        private IDictionary<Tuple<string, FileStatus>, Tuple<string, FileStatus>> PrepareBatch(IEnumerable<string> leftPaths, IEnumerable<string> rightPaths)
-        {
-            IDictionary<Tuple<string, FileStatus>, Tuple<string, FileStatus>> dic = new Dictionary<Tuple<string, FileStatus>, Tuple<string, FileStatus>>();
-
-            IEnumerator<string> leftEnum = leftPaths.GetEnumerator();
-            IEnumerator<string> rightEnum = rightPaths.GetEnumerator();
-
-            while (Enumerate(leftEnum, rightEnum))
-            {
-                Tuple<string, FileStatus> from = BuildFrom(leftEnum.Current);
-                Tuple<string, FileStatus> to = BuildFrom(rightEnum.Current);
-                dic.Add(from, to);
-            }
-
-            return dic;
-        }
-
-        private Tuple<string, FileStatus> BuildFrom(string path)
-        {
-            string relativePath = repo.BuildRelativePathFrom(path);
-            return new Tuple<string, FileStatus>(relativePath, RetrieveStatus(relativePath));
-        }
-
-        private static bool Enumerate(IEnumerator<string> leftEnum, IEnumerator<string> rightEnum)
-        {
-            bool isLeftEoF = leftEnum.MoveNext();
-            bool isRightEoF = rightEnum.MoveNext();
-
-            if (isLeftEoF == isRightEoF)
-            {
-                return isLeftEoF;
-            }
-
-            throw new ArgumentException("The collection of paths are of different lengths.");
-        }
-
-        private void AddToIndex(string relativePath)
-        {
-            if (!repo.Submodules.TryStage(relativePath, true))
-            {
-                Proxy.git_index_add_bypath(handle, relativePath);
-            }
-        }
-
-        private string RemoveFromIndex(string relativePath)
+        private void RemoveFromIndex(string relativePath)
         {
             Proxy.git_index_remove_bypath(handle, relativePath);
+        }
 
-            return relativePath;
+        /// <summary>
+        /// Removes a specified entry from the <see cref="Index"/>.
+        /// </summary>
+        /// <param name="indexEntryPath">The path of the <see cref="Index"/> entry to be removed.</param>
+        public virtual void Remove(string indexEntryPath)
+        {
+            if (indexEntryPath == null)
+            {
+                throw new ArgumentNullException("indexEntryPath");
+            }
+
+            RemoveFromIndex(indexEntryPath);
+
+            UpdatePhysicalIndex();
+        }
+
+        /// <summary>
+        /// Adds a file from the working directory in the <see cref="Index"/>.
+        /// <para>
+        ///   If an entry with the same path already exists in the <see cref="Index"/>,
+        ///   the newly added one will overwrite it.
+        /// </para>
+        /// </summary>
+        /// <param name="pathInTheWorkdir">The path, in the working directory, of the file to be added.</param>
+        public virtual void Add(string pathInTheWorkdir)
+        {
+            if (pathInTheWorkdir == null)
+            {
+                throw new ArgumentNullException("pathInTheWorkdir");
+            }
+
+            Proxy.git_index_add_bypath(handle, pathInTheWorkdir);
+
+            UpdatePhysicalIndex();
+        }
+
+        /// <summary>
+        /// Adds an entry in the <see cref="Index"/> from a <see cref="Blob"/>.
+        /// <para>
+        ///   If an entry with the same path already exists in the <see cref="Index"/>,
+        ///   the newly added one will overwrite it.
+        /// </para>
+        /// </summary>
+        /// <param name="blob">The <see cref="Blob"/> which content should be added to the <see cref="Index"/>.</param>
+        /// <param name="indexEntryPath">The path to be used in the <see cref="Index"/>.</param>
+        /// <param name="indexEntryMode">Either <see cref="Mode.NonExecutableFile"/>, <see cref="Mode.ExecutableFile"/>
+        /// or <see cref="Mode.SymbolicLink"/>.</param>
+        public virtual void Add(Blob blob, string indexEntryPath, Mode indexEntryMode)
+        {
+            Ensure.ArgumentConformsTo(indexEntryMode, m => m.HasAny(TreeEntryDefinition.BlobModes), "indexEntryMode");
+
+            if (blob == null)
+            {
+                throw new ArgumentNullException("blob");
+            }
+
+            if (indexEntryPath == null)
+            {
+                throw new ArgumentNullException("indexEntryPath");
+            }
+
+            AddEntryToTheIndex(indexEntryPath, blob.Id, indexEntryMode);
+
+            UpdatePhysicalIndex();
         }
 
         private void UpdatePhysicalIndex()
@@ -508,33 +231,7 @@ namespace LibGit2Sharp
             Proxy.git_index_write(handle);
         }
 
-        /// <summary>
-        /// Retrieves the state of a file in the working directory, comparing it against the staging area and the latest commmit.
-        /// </summary>
-        /// <param name="filePath">The relative path within the working directory to the file.</param>
-        /// <returns>A <see cref="FileStatus"/> representing the state of the <paramref name="filePath"/> parameter.</returns>
-        public virtual FileStatus RetrieveStatus(string filePath)
-        {
-            Ensure.ArgumentNotNullOrEmptyString(filePath, "filePath");
-
-            string relativePath = repo.BuildRelativePathFrom(filePath);
-
-            return Proxy.git_status_file(repo.Handle, relativePath);
-        }
-
-        /// <summary>
-        /// Retrieves the state of all files in the working directory, comparing them against the staging area and the latest commmit.
-        /// </summary>
-        /// <param name="options">If set, the options that control the status investigation.</param>
-        /// <returns>A <see cref="RepositoryStatus"/> holding the state of all the files.</returns>
-        public virtual RepositoryStatus RetrieveStatus(StatusOptions options = null)
-        {
-            ReloadFromDisk();
-
-            return new RepositoryStatus(repo, options);
-        }
-
-        internal void Reset(TreeChanges changes)
+        internal void Replace(TreeChanges changes)
         {
             foreach (TreeEntryChanges treeEntryChanges in changes)
             {
@@ -548,13 +245,17 @@ namespace LibGit2Sharp
                         continue;
 
                     case ChangeKind.Deleted:
-                        /* Fall through */
                     case ChangeKind.Modified:
-                        ReplaceIndexEntryWith(treeEntryChanges);
+                        AddEntryToTheIndex(treeEntryChanges.OldPath,
+                                           treeEntryChanges.OldOid,
+                                           treeEntryChanges.OldMode);
                         continue;
 
                     default:
-                        throw new InvalidOperationException(string.Format(CultureInfo.InvariantCulture, "Entry '{0}' bears an unexpected ChangeKind '{1}'", treeEntryChanges.Path, treeEntryChanges.Status));
+                        throw new InvalidOperationException(string.Format(CultureInfo.InvariantCulture,
+                                                                          "Entry '{0}' bears an unexpected ChangeKind '{1}'",
+                                                                          treeEntryChanges.Path,
+                                                                          treeEntryChanges.Status));
                 }
             }
 
@@ -566,37 +267,64 @@ namespace LibGit2Sharp
         /// </summary>
         public virtual ConflictCollection Conflicts
         {
-            get
-            {
-                return conflicts;
-            }
+            get { return conflicts; }
         }
 
-        private void ReplaceIndexEntryWith(TreeEntryChanges treeEntryChanges)
+        private void AddEntryToTheIndex(string path, ObjectId id, Mode mode)
         {
             var indexEntry = new GitIndexEntry
             {
-                Mode = (uint)treeEntryChanges.OldMode,
-                Id = treeEntryChanges.OldOid.Oid,
-                Path = StrictFilePathMarshaler.FromManaged(treeEntryChanges.OldPath),
+                Mode = (uint)mode,
+                Id = id.Oid,
+                Path = StrictFilePathMarshaler.FromManaged(path),
             };
 
             Proxy.git_index_add(handle, indexEntry);
             EncodingMarshaler.Cleanup(indexEntry.Path);
         }
 
-        internal void ReloadFromDisk()
-        {
-            Proxy.git_index_read(handle);
-        }
-
         private string DebuggerDisplay
         {
             get
             {
-                return string.Format(CultureInfo.InvariantCulture,
-                    "Count = {0}", Count);
+                return string.Format(CultureInfo.InvariantCulture, "Count = {0}", Count);
             }
+        }
+
+        /// <summary>
+        /// Replaces entries in the <see cref="Index"/> with entries from the specified <see cref="Commit"/>.
+        /// </summary>
+        /// <param name="commit">The target <see cref="Commit"/> object.</param>
+        public virtual void Replace(Commit commit)
+        {
+            Replace(commit, null, null);
+        }
+
+        /// <summary>
+        /// Replaces entries in the <see cref="Index"/> with entries from the specified <see cref="Commit"/>.
+        /// </summary>
+        /// <param name="commit">The target <see cref="Commit"/> object.</param>
+        /// <param name="paths">The list of paths (either files or directories) that should be considered.</param>
+        public virtual void Replace(Commit commit, IEnumerable<string> paths)
+        {
+            Replace(commit, paths, null);
+        }
+
+        /// <summary>
+        /// Replaces entries in the <see cref="Index"/> with entries from the specified <see cref="Commit"/>.
+        /// </summary>
+        /// <param name="commit">The target <see cref="Commit"/> object.</param>
+        /// <param name="paths">The list of paths (either files or directories) that should be considered.</param>
+        /// <param name="explicitPathsOptions">
+        /// If set, the passed <paramref name="paths"/> will be treated as explicit paths.
+        /// Use these options to determine how unmatched explicit paths should be handled.
+        /// </param>
+        public virtual void Replace(Commit commit, IEnumerable<string> paths, ExplicitPathsOptions explicitPathsOptions)
+        {
+            Ensure.ArgumentNotNull(commit, "commit");
+
+            var changes = repo.Diff.Compare<TreeChanges>(commit.Tree, DiffTargets.Index, paths, explicitPathsOptions, new CompareOptions { Similarity = SimilarityOptions.None });
+            Replace(changes);
         }
     }
 }

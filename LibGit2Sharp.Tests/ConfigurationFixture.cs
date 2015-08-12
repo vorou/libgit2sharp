@@ -1,8 +1,10 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using LibGit2Sharp.Tests.TestHelpers;
 using Xunit;
+using Xunit.Extensions;
 
 namespace LibGit2Sharp.Tests
 {
@@ -14,39 +16,10 @@ namespace LibGit2Sharp.Tests
             AssertValueInConfigFile(configFilePath, regex);
         }
 
-        private static string RetrieveGlobalConfigLocation()
-        {
-            string[] variables = { "HOME", "USERPROFILE", };
-
-            foreach (string variable in variables)
-            {
-                string potentialLocation = Environment.GetEnvironmentVariable(variable);
-                if (string.IsNullOrEmpty(potentialLocation))
-                {
-                    continue;
-                }
-
-                string potentialPath = Path.Combine(potentialLocation, ".gitconfig");
-
-                if (File.Exists(potentialPath))
-                {
-                    return potentialPath;
-                }
-            }
-
-            throw new InvalidOperationException("Unable to determine the location of '.gitconfig' file.");
-        }
-
-        private static void AssertValueInGlobalConfigFile(string regex)
-        {
-            string configFilePath = RetrieveGlobalConfigLocation();
-            AssertValueInConfigFile(configFilePath, regex);
-        }
-
         [Fact]
         public void CanUnsetAnEntryFromTheLocalConfiguration()
         {
-            string path = CloneStandardTestRepo();
+            string path = SandboxStandardTestRepo();
             using (var repo = new Repository(path))
             {
                 Assert.Null(repo.Config.Get<bool>("unittests.boolsetting"));
@@ -67,7 +40,8 @@ namespace LibGit2Sharp.Tests
 
             var options = BuildFakeConfigs(scd);
 
-            using (var repo = new Repository(BareTestRepoPath, options))
+            string path = SandboxBareTestRepo();
+            using (var repo = new Repository(path, options))
             {
                 Assert.True(repo.Config.HasConfig(ConfigurationLevel.Global));
                 Assert.Equal(42, repo.Config.Get<int>("Wow.Man-I-am-totally-global").Value);
@@ -80,34 +54,11 @@ namespace LibGit2Sharp.Tests
             }
         }
 
-        [SkippableFact]
-        public void CanGetGlobalStringValue()
-        {
-            using (var repo = new Repository(StandardTestRepoPath))
-            {
-                InconclusiveIf(() => !repo.Config.HasConfig(ConfigurationLevel.Global),
-                    "No Git global configuration available");
-
-                Assert.NotNull(repo.Config.Get<string>("user.name"));
-            }
-        }
-
-        [SkippableFact]
-        public void CanGetGlobalStringValueWithoutRepo()
-        {
-            using (var config = new Configuration())
-            {
-                InconclusiveIf(() => !config.HasConfig(ConfigurationLevel.Global),
-                    "No Git global configuration available");
-
-                Assert.NotNull(config.Get<string>("user.name"));
-            }
-        }
-
         [Fact]
         public void CanReadBooleanValue()
         {
-            using (var repo = new Repository(StandardTestRepoPath))
+            var path = SandboxStandardTestRepoGitDir();
+            using (var repo = new Repository(path))
             {
                 Assert.True(repo.Config.Get<bool>("core.ignorecase").Value);
                 Assert.True(repo.Config.GetValueOrDefault<bool>("core.ignorecase"));
@@ -121,7 +72,8 @@ namespace LibGit2Sharp.Tests
         [Fact]
         public void CanReadIntValue()
         {
-            using (var repo = new Repository(StandardTestRepoPath))
+            var path = SandboxStandardTestRepoGitDir();
+            using (var repo = new Repository(path))
             {
                 Assert.Equal(2, repo.Config.Get<int>("unittests.intsetting").Value);
                 Assert.Equal(2, repo.Config.GetValueOrDefault<int>("unittests.intsetting"));
@@ -136,7 +88,8 @@ namespace LibGit2Sharp.Tests
         [Fact]
         public void CanReadLongValue()
         {
-            using (var repo = new Repository(StandardTestRepoPath))
+            var path = SandboxStandardTestRepoGitDir();
+            using (var repo = new Repository(path))
             {
                 Assert.Equal(15234, repo.Config.Get<long>("unittests.longsetting").Value);
                 Assert.Equal(15234, repo.Config.GetValueOrDefault<long>("unittests.longsetting"));
@@ -150,7 +103,8 @@ namespace LibGit2Sharp.Tests
         [Fact]
         public void CanReadStringValue()
         {
-            using (var repo = new Repository(StandardTestRepoPath))
+            var path = SandboxStandardTestRepoGitDir();
+            using (var repo = new Repository(path))
             {
                 Assert.Equal("+refs/heads/*:refs/remotes/origin/*", repo.Config.Get<string>("remote.origin.fetch").Value);
                 Assert.Equal("+refs/heads/*:refs/remotes/origin/*", repo.Config.Get<string>("remote", "origin", "fetch").Value);
@@ -192,7 +146,8 @@ namespace LibGit2Sharp.Tests
             string configPath = CreateConfigurationWithDummyUser(Constants.Signature);
             var options = new RepositoryOptions { GlobalConfigurationLocation = configPath };
 
-            using (var repo = new Repository(StandardTestRepoPath, options))
+            var path = SandboxStandardTestRepoGitDir();
+            using (var repo = new Repository(path, options))
             {
                 var entry = repo.Config.FirstOrDefault<ConfigurationEntry<string>>(e => e.Key == "user.name");
                 Assert.NotNull(entry);
@@ -203,7 +158,8 @@ namespace LibGit2Sharp.Tests
         [Fact]
         public void CanEnumerateLocalConfig()
         {
-            using (var repo = new Repository(StandardTestRepoPath))
+            var path = SandboxStandardTestRepoGitDir();
+            using (var repo = new Repository(path))
             {
                 var entry = repo.Config.FirstOrDefault<ConfigurationEntry<string>>(e => e.Key == "core.ignorecase");
                 Assert.NotNull(entry);
@@ -214,7 +170,8 @@ namespace LibGit2Sharp.Tests
         [Fact]
         public void CanEnumerateLocalConfigContainingAKeyWithNoValue()
         {
-            using (var repo = new Repository(BareTestRepoPath))
+            string path = SandboxBareTestRepo();
+            using (var repo = new Repository(path))
             {
                 var entry = repo.Config
                     .Single<ConfigurationEntry<string>>(c => c.Level == ConfigurationLevel.Local && c.Key == "core.pager");
@@ -226,13 +183,17 @@ namespace LibGit2Sharp.Tests
         [Fact]
         public void CanFindInLocalConfig()
         {
-            using (var repo = new Repository(StandardTestRepoPath))
+            var path = SandboxStandardTestRepoGitDir();
+            using (var repo = new Repository(path))
             {
                 var matches = repo.Config.Find("unit");
 
                 Assert.NotNull(matches);
                 Assert.Equal(new[] { "unittests.intsetting", "unittests.longsetting" },
-                             matches.Select(m => m.Key).ToArray());
+                             matches
+                             .Select(m => m.Key)
+                             .OrderBy(s => s)
+                             .ToArray());
             }
         }
 
@@ -242,7 +203,8 @@ namespace LibGit2Sharp.Tests
             string configPath = CreateConfigurationWithDummyUser(Constants.Signature);
             var options = new RepositoryOptions { GlobalConfigurationLocation = configPath };
 
-            using (var repo = new Repository(StandardTestRepoPath, options))
+            var path = SandboxStandardTestRepoGitDir();
+            using (var repo = new Repository(path, options))
             {
                 var matches = repo.Config.Find(@"\.name", ConfigurationLevel.Global);
 
@@ -255,7 +217,7 @@ namespace LibGit2Sharp.Tests
         [Fact]
         public void CanSetBooleanValue()
         {
-            string path = CloneStandardTestRepo();
+            string path = SandboxStandardTestRepo();
             using (var repo = new Repository(path))
             {
                 repo.Config.Set("unittests.boolsetting", true);
@@ -264,58 +226,10 @@ namespace LibGit2Sharp.Tests
             }
         }
 
-        [SkippableFact]
-        public void CanSetGlobalStringValue()
-        {
-            using (var repo = new Repository(StandardTestRepoPath))
-            {
-                InconclusiveIf(() => !repo.Config.HasConfig(ConfigurationLevel.Global),
-                    "No Git global configuration available");
-
-                var existing = repo.Config.Get<string>("user.name");
-                Assert.NotNull(existing);
-
-                try
-                {
-                    repo.Config.Set("user.name", "Unit Test", ConfigurationLevel.Global);
-
-                    AssertValueInGlobalConfigFile("name = Unit Test$");
-                }
-                finally
-                {
-                    repo.Config.Set("user.name", existing.Value, ConfigurationLevel.Global);
-                }
-            }
-        }
-
-        [SkippableFact]
-        public void CanSetGlobalStringValueWithoutRepo()
-        {
-            using(var config = new Configuration())
-            {
-                InconclusiveIf(() => !config.HasConfig(ConfigurationLevel.Global),
-                    "No Git global configuration available");
-
-                var existing = config.Get<string>("user.name");
-                Assert.NotNull(existing);
-
-                try
-                {
-                    config.Set("user.name", "Unit Test", ConfigurationLevel.Global);
-
-                    AssertValueInGlobalConfigFile("name = Unit Test$");
-                }
-                finally
-                {
-                    config.Set("user.name", existing.Value, ConfigurationLevel.Global);
-                }
-            }
-        }
-
         [Fact]
         public void SettingLocalConfigurationOutsideAReposThrows()
         {
-            using (var config = new Configuration())
+            using (var config = Configuration.BuildFrom(null, null, null, null))
             {
                 Assert.Throws<LibGit2SharpException>(() => config.Set("unittests.intsetting", 3));
             }
@@ -324,7 +238,7 @@ namespace LibGit2Sharp.Tests
         [Fact]
         public void CanSetIntValue()
         {
-            string path = CloneStandardTestRepo();
+            string path = SandboxStandardTestRepo();
             using (var repo = new Repository(path))
             {
                 repo.Config.Set("unittests.intsetting", 3);
@@ -336,7 +250,7 @@ namespace LibGit2Sharp.Tests
         [Fact]
         public void CanSetLongValue()
         {
-            string path = CloneStandardTestRepo();
+            string path = SandboxStandardTestRepo();
             using (var repo = new Repository(path))
             {
                 repo.Config.Set("unittests.longsetting", (long)451);
@@ -348,7 +262,7 @@ namespace LibGit2Sharp.Tests
         [Fact]
         public void CanSetStringValue()
         {
-            string path = CloneStandardTestRepo();
+            string path = SandboxStandardTestRepo();
             using (var repo = new Repository(path))
             {
                 repo.Config.Set("unittests.stringsetting", "val");
@@ -360,7 +274,7 @@ namespace LibGit2Sharp.Tests
         [Fact]
         public void CanSetAndReadUnicodeStringValue()
         {
-            string path = CloneStandardTestRepo();
+            string path = SandboxStandardTestRepo();
             using (var repo = new Repository(path))
             {
                 repo.Config.Set("unittests.stringsetting", "Juliën");
@@ -382,7 +296,8 @@ namespace LibGit2Sharp.Tests
         [Fact]
         public void ReadingUnsupportedTypeThrows()
         {
-            using (var repo = new Repository(StandardTestRepoPath))
+            var path = SandboxStandardTestRepoGitDir();
+            using (var repo = new Repository(path))
             {
                 Assert.Throws<ArgumentException>(() => repo.Config.Get<short>("unittests.setting"));
                 Assert.Throws<ArgumentException>(() => repo.Config.Get<Configuration>("unittests.setting"));
@@ -392,7 +307,8 @@ namespace LibGit2Sharp.Tests
         [Fact]
         public void ReadingValueThatDoesntExistReturnsNull()
         {
-            using (var repo = new Repository(StandardTestRepoPath))
+            var path = SandboxStandardTestRepoGitDir();
+            using (var repo = new Repository(path))
             {
                 Assert.Null(repo.Config.Get<string>("unittests.ghostsetting"));
                 Assert.Null(repo.Config.Get<int>("unittests.ghostsetting"));
@@ -404,7 +320,8 @@ namespace LibGit2Sharp.Tests
         [Fact]
         public void SettingUnsupportedTypeThrows()
         {
-            using (var repo = new Repository(StandardTestRepoPath))
+            var path = SandboxStandardTestRepoGitDir();
+            using (var repo = new Repository(path))
             {
                 Assert.Throws<ArgumentException>(() => repo.Config.Set("unittests.setting", (short)123));
                 Assert.Throws<ArgumentException>(() => repo.Config.Set("unittests.setting", repo.Config));
@@ -418,7 +335,7 @@ namespace LibGit2Sharp.Tests
 
             var options = BuildFakeConfigs(scd);
 
-            string path = CloneStandardTestRepo();
+            string path = SandboxStandardTestRepo();
             using (var repo = new Repository(path, options))
             {
                 Assert.True(repo.Config.HasConfig(ConfigurationLevel.Local));
@@ -443,12 +360,54 @@ namespace LibGit2Sharp.Tests
 
             var options = BuildFakeConfigs(scd);
 
-            using (var repo = new Repository(BareTestRepoPath, options))
+            string path = SandboxBareTestRepo();
+            using (var repo = new Repository(path, options))
             {
                 Assert.True(repo.Config.HasConfig(ConfigurationLevel.System));
 
                 Assert.Null(repo.Config.Get<string>("MCHammer.You-cant-touch-this", ConfigurationLevel.System));
             }
+        }
+
+        public static IEnumerable<object[]> ConfigAccessors
+        {
+            get
+            {
+                return new List<object[]>
+                {
+                    new[] { new Func<string, string>(p => Path.Combine(p, ".git", "config")) },
+                    new[] { new Func<string, string>(p => Path.Combine(p, ".git")) },
+                    new[] { new Func<string, string>(p => p) },
+                };
+            }
+        }
+
+        [Theory, PropertyData("ConfigAccessors")]
+        public void CanAccessConfigurationWithoutARepository(Func<string, string> localConfigurationPathProvider)
+        {
+            var path = SandboxStandardTestRepoGitDir();
+
+            string globalConfigPath = CreateConfigurationWithDummyUser(Constants.Signature);
+            var options = new RepositoryOptions { GlobalConfigurationLocation = globalConfigPath };
+
+            using (var repo = new Repository(path, options))
+            {
+                repo.Config.Set("my.key", "local");
+                repo.Config.Set("my.key", "mouse", ConfigurationLevel.Global);
+            }
+
+            using (var config = Configuration.BuildFrom(localConfigurationPathProvider(path), globalConfigPath))
+            {
+                Assert.Equal("local", config.Get<string>("my.key").Value);
+                Assert.Equal("mouse", config.Get<string>("my.key", ConfigurationLevel.Global).Value);
+            }
+        }
+
+        [Fact]
+        public void PassingANonExistingLocalConfigurationFileToBuildFromthrowss()
+        {
+            Assert.Throws<FileNotFoundException>(() => Configuration.BuildFrom(
+                Path.Combine(Path.GetTempPath(), Path.GetRandomFileName())));
         }
     }
 }
